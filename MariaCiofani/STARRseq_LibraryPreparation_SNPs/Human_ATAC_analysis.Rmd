@@ -1,0 +1,244 @@
+---
+title: "Human Th1 v Th17 ATAC-seq analysis"
+output: rmarkdown::github_notebook
+---
+
+This R notebook contains the differential ATAC-seq analysis comparing cultured human Th1 and Th17 cells that underwent either standard culture (5-6 days) or culture with cytokine capture
+(5-6 days, cytokine capture, then 5-6 additional days).
+
+## Load packages
+
+```{r}
+library(tidyverse)
+library(edgeR)
+library(ggrepel)
+library(pheatmap)
+```
+
+## Load and clean count data
+
+```{r}
+# Load counts data
+raw = read.delim("../data/atac-seq/200102_human_th1_th17_atac/peaks/human_th1_th17_atac.counts", skip=1)
+
+# Remove peaks on non-reference chromosomes (they make life difficult later and are unannotated, but won't have any influence if we remove them now)
+# Also remove Y chromosome to eliminate sex-differences in noramlization (small but still real)
+
+chrs = paste("chr", c(1:22, 'X'), sep="")
+clean = raw[raw$Chr %in% chrs,]
+
+# Reformat column names
+format.cols <- function(data, regex){
+  cn = colnames(data)
+  m = grep(regex, cn)
+  ids = regmatches(cn[m], regexpr(regex, cn[m]))
+  ids = gsub("\\.", "-", ids)
+  colnames(data)[m] = ids
+  # Since I ended up splitting genes and counts, this command is needlessly complex
+  data = data[, c(1:min(m)-1, gtools::mixedorder(colnames(data)[m])+(min(m)-1))]
+  return(data)
+}
+
+clean = format.cols(clean, "MC.L\\d*")
+
+# Split into genes and counts tables
+genes = clean[1:6]
+counts = clean[-1:-6]
+```
+
+## Add HOMER annotatePeaks data to genes table
+
+### Read in homer annotations
+
+```{r}
+homer = read.delim("../data/atac-seq/200102_human_th1_th17_atac/peaks/merged_peaks_annotated.txt")
+colnames(homer)[1] = 'PeakID'
+# Keep only necessary columns
+homer = homer %>%
+  dplyr::select(PeakID, Annotation, Distance.to.TSS, Nearest.PromoterID)
+# Remove TxID from Annotation column
+homer$Annotation = gsub(" \\(.*", "", homer$Annotation)
+```
+
+### Convert promoter IDs to official gene symbols
+
+```{r}
+library(AnnotationHub)
+library(AnnotationDbi)
+ah <- AnnotationHub()
+
+# Retrieve Ensembl 99 DB
+hg.db <- query(ah, pattern = c("Homo sapiens","EnsDb"))[['AH78783']]
+
+# Remove ENSEMBL version numbers from Tx ID
+homer$Nearest.PromoterID <- gsub("\\.\\d", "", homer$Nearest.PromoterID)
+
+# Conversion function - this is the only way I have been able to deal with NAs without removing entire records. For some reason ifelse() does not work?
+convert = function(txids){
+  output = txids
+  na.free = txids[!is.na(txids)]
+  output[!is.na(output)] = mapIds(hg.db, na.free, "SYMBOL", "TXID")
+  return(output)
+}
+
+homer$Gene.Name = convert(homer$Nearest.PromoterID)
+```
+
+### Join homer annotations with genes dataframe
+
+```{r}
+genes.annotated = genes %>%
+  left_join(homer, by = c("Geneid" = "PeakID"))
+```
+
+
+## Load metadata
+
+```{r}
+# Link to master google sheet
+## GOOGLESHEETS API IS NOW BROKEN!!!
+# library(googlesheets)
+# mysheets = gs_ls()
+# meta_sheet = gs_title("Ciofani NGS Metadata")
+# meta_all = meta_sheet %>% gs_read()
+
+meta_all = read.csv("../data/atac-seq/200102_human_th1_th17_atac/th_atac_metadata.csv", check.names = F)
+
+# Retrieve rows matching our sample IDs
+meta_expt = meta_all %>% dplyr::filter(Library_ID %in% colnames(clean))
+
+# Remove columns with all NA (there are many)
+meta_expt = meta_expt[,colSums(is.na(meta_expt)) < nrow(meta_expt)]
+
+# Split the 'Condition / Cell Type' column into 'Condition' and 'Cell Type' columns
+# Split 'Genotype' into 'Age' and 'Sex' columns
+meta_expt = meta_expt %>%
+  extract(`Condition/Cell type`, into = c("Condition", "CellType"), regex = "^.*(c[[[:alpha:]]]*).*(Th\\d*)") %>%
+  extract(Genotype, into = c('Age', 'Sex'), regex = "^(\\d*).*\\s([[:alpha:]]*ale)")
+```
+
+## Create DGE object
+
+```{r}
+dge = DGEList(counts=counts, genes = genes.annotated, samples = meta_expt)
+```
+
+## Normalize
+
+```{r}
+dge = calcNormFactors(dge)
+```
+
+## Exploratory Analysis
+
+### PCA
+
+```{r}
+logcpm <- cpm(dge, log = T)
+pca <- prcomp(t(logcpm))
+
+eigs <- pca$sdev^2
+
+scores <- as.data.frame(pca$x)
+scores %>%
+  ggplot(aes(x = PC1, y =PC2, label = rownames(scores), color=dge$samples$CellType, 
+             shape=dge$samples$Condition)) + 
+  geom_point() + 
+  geom_text_repel() + 
+  theme_bw() +
+  xlab(sprintf("PC1 (%.0f%% of variance)", (eigs[1] / sum(eigs)*100))) +
+  ylab(sprintf("PC2 (%.0f%% of variance)", (eigs[2] / sum(eigs)*100))) +
+  scale_color_discrete() +
+  labs(color='Cell Type', shape='Culture Condition', title = "PCA1 v PCA2")
+
+scores %>%
+  ggplot(aes(x = PC2, y =PC3, label = rownames(scores), color=dge$samples$CellType, 
+             shape=dge$samples$Condition)) + 
+  geom_point() + 
+  geom_text_repel() + 
+  theme_bw() +
+  xlab(sprintf("PC2 (%.0f%% of variance)", (eigs[2] / sum(eigs)*100))) +
+  ylab(sprintf("PC3 (%.0f%% of variance)", (eigs[3] / sum(eigs)*100))) +
+  scale_color_discrete() +
+  labs(color='Cell Type', shape='Culture Condition', title = "PCA2 v PCA3")
+```
+
+### Pearson correlation
+
+```{r}
+sp.cor <- cor(logcpm, method="pearson")
+pheatmap(sp.cor, annotation_col = dge$samples[9:10])
+```
+
+```{r}
+variance = sort(apply(logcpm, MARGIN = 1, var), decreasing=TRUE)
+selected = names(variance)[1:1000]
+pheatmap(logcpm[selected,], clustering_distance_cols = "correlation", scale = "row", show_rownames = F, annotation_col = dge$samples[9:10])
+```
+
+
+## Design and dispersion
+
+```{r}
+# Create metavariables
+dge$samples$group = paste(dge$samples$CellType, dge$samples$Condition, sep=".")
+
+design = model.matrix(~0+group, data=dge$samples)
+
+comparisons = c("CC_Th1_v_Th17" = "Th1.capture-Th17.capture",
+                "Std_Th1_v_Th17" = "Th1.culture-Th17.culture")
+
+contrasts = makeContrasts(contrasts = comparisons, levels=design)
+
+dge = estimateDisp(dge, design=design)
+```
+
+## DA testing
+
+```{r}
+ets = lapply(comparisons, function(x) exactTest(dge, pair=strsplit(x, "-")[[1]]))
+results = lapply(ets, function(x) as.data.frame(topTags(x, n=Inf)))
+```
+
+## Volcano plot
+
+```{r}
+results[[1]] %>%
+  ggplot(aes(x=logFC, y=-log10(PValue), color=FDR < 0.05)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle(names(results[1]))
+
+results[[2]] %>%
+  ggplot(aes(x=logFC, y=-log10(PValue), color=FDR < 0.05)) +
+  geom_point() +
+  theme_classic() +
+  ggtitle(names(results[2]))
+```
+
+## Output table of DA regions
+
+```{r}
+for(i in 1:length(results)){
+  results[[i]] %>%
+  transmute(PeakID = Geneid, Chr, Start, End, Length, Distance.to.TSS, Nearest.PromoterID, Gene.Name, logFC, logCPM, PValue, FDR) %>%
+  write.csv(file = paste("../results/atac-seq/da_tables/", 
+                         names(results[i]), "_DA.csv", sep=""),
+            row.names = F)
+}
+```
+
+
+## Get BED files of up and down regions
+
+```{r}
+th17 = results %>% dplyr::filter(logFC > 1, FDR < 0.05)
+th1 = results %>% dplyr::filter(logFC < -1, FDR < 0.05)
+
+th17 %>% transmute(Chr, Start = Start - 1, End, Name = paste(Geneid, "Th17", sep="_")) %>%
+  write.table(file="peaks/Th17_2fold_atac.bed", quote=F, sep="\t", row.names=F, col.names = F)
+
+th1 %>% transmute(Chr, Start = Start - 1, End, Name = paste(Geneid, "Th1", sep="_")) %>%
+  write.table(file="peaks/Th1_2fold_atac.bed", quote=F, sep="\t", row.names=F, col.names = F)
+```
+

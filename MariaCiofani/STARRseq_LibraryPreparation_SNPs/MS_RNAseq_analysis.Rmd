@@ -1,0 +1,328 @@
+---
+title: "Human MS Patient RNAseq"
+author: "Josh Wheaton"
+date: "2/11/2020"
+output: rmarkdown::github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      dpi=100)
+```
+
+# Differential expression analysis of sorted PBMCs from MS patients and controls
+
+## Experimental Design
+
+Th17.1 cells were sorted from peripheral blood of 7 MS patients and 7 healthy controls obtained from Duke.
+
+## Differential expression analysis
+
+### Load packages
+
+```{r}
+library(tidyverse)
+library(edgeR)
+library(ggrepel)
+library(pheatmap)
+library(caret)
+```
+
+### Loading and cleaning count data
+
+```{r}
+raw <- read.delim(file="../data/rna-seq/200211_ms_patients/ms_patients.counts", sep="\t", skip=1)
+```
+
+Let’s remove the chr, start, end, and strand columns, because they are bulky and we won’t be using them. Then we’ll reformat the column names to remove paths and match the formatting of the original sample ID’s (which we will use later), then we’ll reorder the counts columns in alphanumeric order (otherwise issues can arise due to this being an assumption in certain cases), and finally we’ll remove the ENSEMBL version numbers (i.e. #####.X) from the gene names because this interferes with ID conversions we’ll perform later.
+
+```{r}
+# Remove unwanted columns
+clean <- raw[-2:-5]
+# Remove paths from sample names
+colnames(clean)[-1:-2] <- gsub(".", "-", regmatches(colnames(clean)[-1:-2], regexpr("MC.S\\d*",colnames(clean)[-1:-2])), fixed = T)
+# Reorder counts columns alphanumerically
+clean <- clean[,c(1, 2, gtools::mixedorder(colnames(clean)[-1:-2])+2)]
+# Remove ENSEMBL version numbers
+clean$Geneid <- regmatches(clean$Geneid, regexpr("ENSG[[:digit:]]*", clean$Geneid))
+```
+
+### Load sample metadata
+
+```{r}
+metadata <- read.csv(file = "../data/rna-seq/200211_ms_patients/ms_patients_metadata.csv")
+```
+
+### Clean metadata
+
+```{r}
+metadata <- metadata[c(1,2,3,7,10,11)]
+
+# Split the genotype column into new 'group' and 'sex' columns
+metadata <- metadata %>% 
+  extract(col = 'Genotype', into = c('group', 'sex'),   regex = "(\\w+).+([MF])")
+```
+
+
+### Create edgeR DGEList object from counts and metadata
+
+```{r}
+dge <- DGEList(counts=clean[3:ncol(clean)], genes=clean[1:2], samples=metadata)
+```
+
+### Add gene symbols and descriptions
+
+```{r}
+library(AnnotationHub)
+library(AnnotationDbi)
+ah <- AnnotationHub()
+
+# Grab the annotation DB, this one is Ensembl 99
+hg.db <- query(ah, pattern = c("Homo sapiens","EnsDb"))[['AH78783']]
+
+dge$genes$gene_symbol = mapIds(hg.db, dge$genes$Geneid, "SYMBOL", "GENEID")
+dge$genes$description = mapIds(hg.db, dge$genes$Geneid, "DESCRIPTION", "GENEID")
+
+# Drop ah because it is large
+rm(ah)
+```
+
+### Normalize for library size
+
+```{r}
+dge <- calcNormFactors(dge)
+```
+
+### Remove genes with low / no counts
+
+```{r}
+keep <- rowSums(cpm(dge) >= 1) >= 6
+dge <- dge[keep,]
+```
+
+### Exploratory analysis
+
+#### PCA
+
+```{r}
+logcpm <- cpm(dge, log = T)
+
+pca <- prcomp(t(logcpm), scale. = T)
+
+eigs <- pca$sdev^2
+
+scores <- as.data.frame(pca$x)
+
+km <- kmeans(scores, 3, iter.max = 20)
+
+dge$samples$cluster <- km$cluster
+scores$cluster <- km$cluster
+
+pct_v = sapply(eigs, function(x) x / sum(eigs)* 100)
+
+ggplot(data=as.data.frame(cbind(seq(1:10), pct_v[1:10])), aes(x=V1, y=V2)) + 
+  geom_col() +
+  theme_bw() +
+  xlab('PC') +
+  ylab('% of variance') +
+  scale_x_continuous(breaks = seq(1,10))
+
+scores %>%
+  ggplot(aes(x = PC1, y =PC2, label = rownames(scores), color=dge$samples$group, 
+             shape=dge$samples$sex)) + 
+  geom_point() + 
+  geom_text_repel() + 
+  theme_bw() +
+  xlab(sprintf("PC1 (%.0f%% of variance)", (eigs[1] / sum(eigs)*100))) +
+  ylab(sprintf("PC2 (%.0f%% of variance)", (eigs[2] / sum(eigs)*100))) +
+  scale_color_discrete() +
+  labs(color='Group', shape='Sex', title = "PCA1 v PCA2")
+
+scores %>%
+  ggplot(aes(x = PC2, y =PC3, label = rownames(scores), color=dge$samples$group, 
+             shape=dge$samples$sex)) +  
+  geom_point() + 
+  geom_text_repel() + 
+  theme_bw() +
+  xlab(sprintf("PC2 (%.0f%% of variance)", (eigs[2] / sum(eigs)*100))) +
+  ylab(sprintf("PC3 (%.0f%% of variance)", (eigs[3] / sum(eigs)*100))) +
+  scale_color_discrete() +
+  labs(color='Group', shape='Sex', title = "PCA2 v PCA3")
+
+scores %>%
+  ggplot(aes(x = PC1, y =PC3, label = rownames(scores), color=dge$samples$group, 
+             shape=dge$samples$sex)) +  
+  geom_point() + 
+  # annotate('point', x=km$centers[,2], y=km$centers[,3]) +
+  # stat_ellipse(aes(group=cluster)) +
+  geom_text_repel() + 
+  theme_bw() +
+  xlab(sprintf("PC1 (%.0f%% of variance)", (eigs[1] / sum(eigs)*100))) +
+  ylab(sprintf("PC3 (%.0f%% of variance)", (eigs[3] / sum(eigs)*100))) +
+  scale_color_discrete() +
+  labs(color='Group', shape='Sex', title = "PCA1 v PCA3")
+```
+
+#### Pearson correlation
+
+```{r}
+sp.cor <- cor(logcpm, method="pearson")
+pheatmap(sp.cor, annotation_col = dge$samples[c(1,9)])
+```
+
+### Heatmap of genes
+
+```{r}
+#row.names(logcpm) <- dge$genes$gene_symbol
+var.genes = apply(X = logcpm, MARGIN = 1, FUN = var)
+
+selected = names(sort(var.genes, decreasing = TRUE))[1:1000]
+
+pheatmap(logcpm[selected,], annotation_col = dge$samples[c(1,9,10)], show_rownames = F, clustering_distance_cols = 'correlation', clustering_distance_rows = 'correlation', cutree_rows = 2, cutree_cols = 3, scale = 'row')
+```
+
+### Heatmap of select genes
+
+```{r}
+row.names(logcpm) <- dge$genes$gene_symbol
+
+select.genes = c('IL17A', 'IFNG', 'IFNG-AS1','IL10', 'RORC', 'TBX21', 'EOMES', 'IL26', 'IL2', 'KLRG1', 'FOXP3', 'IL1R1', 'IL18R1', 'IL1RL1', 'IL23R', 'IL6R', 'GAPDH', 'IL21', 'CCR6', 'CXCR3', 'CXCR4', 'ITGA3', 'OSM', 'CTSH', 'BLK', 'MAF')
+intable = select.genes[which(select.genes %in% row.names(logcpm))]
+
+pheatmap(logcpm[intable,], annotation_col = dge$samples[c(1,9,10)], scale = 'row', clustering_distance_rows = "correlation")
+```
+
+
+### Calculate dispersions
+
+For starters, we'll perform a simple comparison between groups. Later, we may want to add additional terms to our model, such as gender and drug status (need to update metadata with drug and disease activity info).
+
+```{r}
+# Create model matrix
+design = model.matrix(~0+group, data=dge$samples)
+
+# Estimate dispersions
+dge <- estimateDisp(dge, design = design)
+```
+
+### Perform DE testing
+
+```{r}
+et <- exactTest(dge)
+results = as.data.frame(topTags(et, n=Inf))
+```
+
+### Volcano Plot
+
+```{r}
+selected = c("JUNB", "FOSL2", "CXCR4", "SOCS1", "BLK", "IFNG", "RORC", "SOCS1", "IFNG-AS1", "CXCR3", "ITGA4", "CTSH", "BHLHE40", "IL12RB2", "TBC1D4", "GPR174")
+
+results %>% {
+  ggplot(., aes(x = logFC, y = -log10(PValue), label = gene_symbol, color = factor(FDR<0.05, levels=c("TRUE", "FALSE")))) +
+  geom_point() +
+  scale_color_manual(name = "FDR < 0.05", values = c("orange", "gray")) +
+  geom_text_repel(data = .[.$gene_symbol %in% selected,], color = "black", min.segment.length = 0) +
+  theme_bw() +
+    ggsave("../results/rna-seq/ms_patients_volcano.svg", width = 7.5, height = 7.5)
+    }
+```
+
+### Heatmap of top 30 DE genes (and some manually selected)
+
+```{r, fig.height=4}
+select.genes = c(results$gene_symbol[1:30], 'IFNG', 'IFNG-AS1', 'CCR6')
+
+pheatmap(logcpm[select.genes,], annotation_col = dge$samples[c(1,9)], scale = 'row')
+```
+
+### Tabular output
+
+```{r}
+outdir = "../results/rna-seq/de_tables/"
+
+if (!dir.exists(outdir)){
+  dir.create(outdir)
+}
+
+results %>%
+  transmute(ENSEMBL_ID = Geneid, Symbol = gene_symbol, 
+            Description = description, logFC, logCPM, PValue, FDR) %>% 
+  write.table(file=paste(outdir, 'MSvControl', '.tab', sep=""),
+              sep = "\t", row.names = F, quote = F)
+```
+
+### Look at RPKM
+
+```{r}
+rpkm <- rpkm(dge, gene.length='Length')
+
+tpm <- rpkm / colSums(rpkm) * 1e6
+
+row.names(tpm) <- dge$genes$gene_symbol
+
+genes = c("IFNG", 'BLK', 'FOSL2', 'IFNG-AS1', 'RORC', 'TBX21', 'CCR6', 'OSM', 'CTSH', "MIR3142HG")
+
+selected <-dge$genes$gene_symbol %in% genes
+
+pheatmap(tpm[genes,], annotation_col = dge$samples[c(1,9)], show_colnames = T, clustering_distance_cols = 'correlation', scale = 'row')
+
+write.table(tpm, file = "../results/rna-seq/tpm/ms_patients_tpm.csv", sep=",", quote=F, row.names=T, col.names = NA)
+```
+
+
+### Run GSEA Hallmarks
+
+
+```{r}
+library(fgsea)
+
+# Convert results to ranked list with Entrez gene names
+rank_df = results %>%
+  transmute(Entrez = mapIds(hg.db, Geneid, column = 'ENTREZID', keytype = 'GENEID'), rank=(-log10(PValue)) * sign(logFC)) %>%
+  drop_na() %>%
+  arrange(rank) %>%
+  distinct_at('Entrez', .keep_all = T)
+
+ranks = as.numeric(rank_df$rank)
+
+names(ranks) = as.numeric(rank_df$Entrez)
+```
+
+```{r}
+# Retrieve hallmarks data
+hallmarks = gmtPathways("https://data.broadinstitute.org/gsea-msigdb/msigdb/release/7.0/h.all.v7.0.entrez.gmt")
+```
+
+
+```{r}
+# Run GSEA
+fgsea_res = fgsea(pathways=hallmarks,
+      stats = ranks,
+      minSize = 15,
+      maxSize = 500,
+      nperm = 10000)
+
+fgsea_res %>%
+  dplyr::filter(pval < 0.05, padj < 0.10) %>%
+  arrange(NES) %>%
+  mutate(pathway=factor(pathway, levels = pathway)) %>%
+  ggplot(aes(x=pathway, y=NES)) +
+  geom_col(fill="orange") +
+  coord_flip() +
+  theme_bw()
+```
+
+```{r}
+hallmarks_collapsed = collapsePathways(fgseaRes = fgsea_res, hallmarks, ranks)
+plotGseaTable(pathways = hallmarks[hallmarks_collapsed$mainPathways], stats = ranks, fgseaRes = fgsea_res, gseaParam = 0.5)
+```
+
+```{r}
+calcGseaStat(ranks, c(1,2,3,4,5,23,11000), gseaParam = 1, returnAllExtremes = T, returnLeadingEdge = T)
+```
+
+
+```{r}
+plotEnrichment(hallmarks[["HALLMARK_TNFA_SIGNALING_VIA_NFKB"]], stats=ranks, ticksSize = 0.2, gseaParam = 1)
+```
+
