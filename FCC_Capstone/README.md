@@ -36,41 +36,44 @@
 
  - Version 1 trials of heatmaps, adding new TFs/Histone marks, adding CRISPR data, trying out CRISPRi/k data to see the enrichment patterns, trying random sampling of active enhancer calls instead of using the whole set, separations into promoter and distal. 
 
+9. [20221212_fcc_heatmaps_update.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/20221212_fcc_heatmaps_update.ipynb):
 
-9. [Profile_plots_v2](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Profile_plots_v2.ipynb):
+ - Initial iteration of profile_plots (multiple iterations present that adjusts for changes made to data or changes in versions of enhancer calls from Junke)
 
- - Initial versions of profile_plots (multiple iterations present that adjusts for changes made to data or changes in versions of enhancer calls from Junke)
+10. [Profile_plots_v2](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Profile_plots_v2.ipynb):
 
-10. [ChIPseeker_annotation](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Chipseeker_annotation.ipynb): 
+ - Initial versions of profile_plots continued (multiple iterations present that adjusts for changes made to data or changes in versions of enhancer calls from Junke)
+
+11. [ChIPseeker_annotation](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Chipseeker_annotation.ipynb): 
 
  - All of the ChIPseeker annotation performed on different sets of data at different points.
 
-11. [Common_background_set_v1](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Common_background_set_v1.ipynb): 
+12. [Common_background_set_v1](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Common_background_set_v1.ipynb): 
 
  - Initial iterations of creation of common background for all th 3 assays tested
 
-12. [input_vs_inactive peaks comparison](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/input_vs_inactive%20peaks%20comparison.ipynb): 
+13. [input_vs_inactive peaks comparison](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/input_vs_inactive%20peaks%20comparison.ipynb): 
 
  - Initial iterations of testing the GC content matching script between the active set and inactive set used
 
-13. [Inactive_Peaks_Data_Wrangling](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Inactive_Peaks_Data_Wrangling.ipynb):
+14. [Inactive_Peaks_Data_Wrangling](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Inactive_Peaks_Data_Wrangling.ipynb):
 
  - Initial iterations of data wrangling for the inactive peaks from Junke's enhancer call pipeline and ATAC-seq data 
 
-14. [Bubble_plots](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Bubble_plots.ipynb):
+15. [Bubble_plots](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Bubble_plots.ipynb):
 
  - Iterations for creating bubble plots with different sets of assay data
 
-15. [Correlation_Enhancer_Calls.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Correlation_Enhancer_Calls.ipynb):
+16. [Correlation_Enhancer_Calls.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Correlation_Enhancer_Calls.ipynb):
  
  - Explore the correlation using heatmaps, pairplots between the enhancer calls (earlier iterations from Junke's enhancer call pipeline) for ATAC-STARRseq, wgSTARRseq, LentiMPRA and TewheyMPRA data. Also used Jaccard Index to compare the assays
 
-16. [Correlation_biwigs.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Correlation_bigwigs.ipynb):
+17. [Correlation_biwigs.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Correlation_bigwigs.ipynb):
 
  - Correlation between signal bigwigs of ASTARR and MPRA assays. Used multiBigWigSummary from Deeptools package to plot correlation heatmaps.
  - multiBigwigSummary for ASTARR and MPRA at 3 loci (GATA,MYC&FADS) anchored at all cCREs
 
-17. [Wilcoxon_test.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Wilcoxon_test.ipynb):
+18. [Wilcoxon_test.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/Wilcoxon_test.ipynb):
 
  - Wilcoxon rank sum test between the active and inactive genomic scores for a list of TFs/Histone marks that showed significance (on visual examination) in the heatmaps/profile plots. Purpose of this was to determine statistical significance with a p-value.
 
