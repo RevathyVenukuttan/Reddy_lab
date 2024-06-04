@@ -69,7 +69,7 @@
 
  - Wilcoxon rank sum test between the active and inactive genomic scores for a list of TFs/Histone marks that showed significance (on visual examination) in the heatmaps/profile plots. Purpose of this was to determine statistical significance with a p-value.
 
-17. [ASHG_poster.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/ASHG_poster.ipynb]:
+17. [ASHG_poster.ipynb](https://github.com/RevathyVenukuttan/Reddy_lab/blob/main/FCC_Capstone/ASHG_poster.ipynb):
 
  - Notebook was used to generate all plots necessary for the ASHG poster. 
 
